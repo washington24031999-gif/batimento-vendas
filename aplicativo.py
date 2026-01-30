@@ -1,7 +1,7 @@
 import sys
 from types import ModuleType
 
-# Correção para o erro 'imghdr' no Python 3.13
+# Correção técnica para compatibilidade com Python 3.13
 if 'imghdr' not in sys.modules:
     sys.modules['imghdr'] = ModuleType('imghdr')
 
@@ -35,36 +35,38 @@ if arquivo:
             'Origem', 'Valor Primeira Mensalidade'
         ]
         
-        df = df[[c for c in ordem if c in df.columns]]
+        colunas_existentes = [c for c in ordem if c in df.columns]
+        df = df[colunas_existentes]
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Planilha Organizada')
-            ws = writer.sheets['Planilha Organizada']
+            df.to_excel(writer, index=False, sheet_name='Planilha')
+            ws = writer.sheets['Planilha']
             
-            cor_amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-            cor_verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
-            fonte_calibri = Font(name='Calibri', size=11, bold=False)
+            amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+            fonte = Font(name='Calibri', size=11, bold=False)
 
             for col_idx, col_cells in enumerate(ws.columns, 1):
-                header_cell = ws.cell(row=1, column=col_idx)
-                nome_coluna = str(header_cell.value).strip()
+                header = ws.cell(row=1, column=col_idx)
+                nome = str(header.value).strip()
                 
-                if col_idx <= 9 or nome_coluna == "Status Contrato":
-                    header_cell.fill = cor_amarelo
+                if col_idx <= 9 or nome == "Status Contrato":
+                    header.fill = amarelo
                 elif col_idx >= 16:
-                    header_cell.fill = cor_verde
+                    header.fill = verde
                 
                 for cell in col_cells:
-                    cell.font = fonte_calibri
-                
-                ws.column_dimensions[header_cell.column_letter].width = 22
+                    cell.font = fonte
+                ws.column_dimensions[header.column_letter].width = 22
 
-        st.success("✅ Planilha processada!")
+        st.success("✅ Planilha pronta!")
         st.download_button(
             label="📥 Baixar Planilha Formatada",
-            data=
+            data=output.getvalue(),
+            file_name="PLANILHA_NETMANIA_OK.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
-
-
+        st.error(f"Erro: {e}")
