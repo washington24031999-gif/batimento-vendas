@@ -1,95 +1,96 @@
 import sys
 from types import ModuleType
 
-# Correção técnica para compatibilidade com Python 3.13
+# Correção técnica para compatibilidade com Python 3.13 (imghdr)
 if 'imghdr' not in sys.modules:
     sys.modules['imghdr'] = ModuleType('imghdr')
 
 import streamlit as st
 import pandas as pd
-from openpyxl.styles import PatternFill, Font, Alignment
-from openpyxl.utils import column_index_from_string
+from openpyxl.styles import PatternFill, Font
 from io import BytesIO
 
-st.set_page_config(page_title="Netmania Preview Full", layout="wide")
-st.title("📊 Gerador de Planilha com Prévia Completa")
+st.set_page_config(page_title="Netmania Optimizer", layout="wide")
+st.title("📊 Estruturador de Planilhas Personalizado")
 
-# --- ÁREA DE UPLOAD ---
-col1, col2 = st.columns(2)
-with col1:
-    arquivo_base = st.file_uploader("1. Selecione a BASE PRINCIPAL", type=['xlsx', 'csv', 'xlsm'])
-with col2:
-    arquivo_proto = st.file_uploader("2. Selecione o RELATÓRIO DE PROTOCOLOS", type=['xlsx', 'xlsm'])
+arquivo = st.file_uploader("Selecione o arquivo (Excel ou CSV)", type=['xlsx', 'csv', 'xlsm'])
 
-if arquivo_base and arquivo_proto:
+if arquivo:
     try:
-        # --- 1. PROCESSAMENTO ATIVAÇÕES ---
-        if arquivo_base.name.lower().endswith('.csv'):
-            df_ativacoes = pd.read_csv(arquivo_base, sep=None, engine='python', encoding='latin-1')
+        # 1. Leitura
+        if arquivo.name.lower().endswith('.csv'):
+            df = pd.read_csv(arquivo, sep=None, engine='python', encoding='latin-1')
         else:
-            df_ativacoes = pd.read_excel(arquivo_base)
-        
-        df_ativacoes.columns = [str(c).strip() for c in df_ativacoes.columns]
-
-        if 'Status Contrato' in df_ativacoes.columns:
-            df_ativacoes = df_ativacoes[df_ativacoes['Status Contrato'].astype(str).str.lower() != 'cancelado']
-
-        # --- 2. PROCESSAMENTO REATIVAÇÕES ---
-        df_proto_raw = pd.read_excel(arquivo_proto)
-        colunas_letras = [chr(65 + i) for i in range(14)] # A até N
-        df_reativacoes = pd.DataFrame(columns=colunas_letras, index=range(len(df_proto_raw)))
-
-        mapeamento = {
-            'AK': 'B', 'H': 'C', 'I': 'D', 'J': 'E',
-            'K': 'F', 'P': 'G', 'AO': 'H', 'AU': 'I',
-            'AV': 'J', 'AS': 'K', 'AQ': 'L', 'AL': 'N'
-        }
-
-        for de, para in mapeamento.items():
-            try:
-                idx_origem = column_index_from_string(de) - 1
-                idx_destino = column_index_from_string(para) - 1
-                if idx_origem < len(df_proto_raw.columns):
-                    df_reativacoes.iloc[:, idx_destino] = df_proto_raw.iloc[:, idx_origem].values
-            except:
-                continue
-
-        # --- 3. ÁREA DE PRÉVIA ---
-        st.divider()
-        st.subheader("👀 Prévia dos Dados")
-        
-        tab_ativ, tab_reativ = st.tabs([f"Ativações ({len(df_ativacoes)} linhas)", f"Reativações ({len(df_reativacoes)} linhas)"])
-        
-        with tab_ativ:
-            st.dataframe(df_ativacoes, use_container_width=True)
+            df = pd.read_excel(arquivo)
             
-        with tab_reativ:
-            # Substituindo nomes de colunas técnicos (A, B, C...) por algo mais legível na prévia se desejar
-            st.dataframe(df_reativacoes, use_container_width=True)
+        df.columns = [str(c).strip() for c in df.columns]
 
-        # --- 4. GERAÇÃO E DOWNLOAD ---
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_ativacoes.to_excel(writer, index=False, sheet_name='ATIVAÇÕES')
-            df_reativacoes.to_excel(writer, index=False, sheet_name='REATIVAÇÕES')
+        # 2. Filtro de Status
+        if 'Status Contrato' in df.columns:
+            df = df[df['Status Contrato'].str.lower() != 'cancelado']
 
-            amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-            for aba in ['ATIVAÇÕES', 'REATIVAÇÕES']:
-                ws = writer.sheets[aba]
-                for col_idx in range(1, ws.max_column + 1):
-                    header = ws.cell(row=1, column=col_idx)
-                    header.fill = amarelo
-                    header.font = Font(bold=True)
-                    ws.column_dimensions[header.column_letter].width = 20
+        # --- SEÇÃO DE PERSONALIZAÇÃO ---
+        st.subheader("⚙️ Personalize sua exportação")
+        
+        # Ordem padrão sugerida
+        ordem_padrao = [
+            'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
+            'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
+            'Vendedor 1', 'Endereco Ativacao', 'CEP', 'Cidade', 'Servico Ativado', 
+            'Val Serv Ativado', 'Status Contrato', 'Assinatura Contrato', 'Vendedor 2', 
+            'Origem', 'Valor Primeira Mensalidade'
+        ]
+        
+        # Identifica quais colunas da ordem padrão existem no arquivo e quais outras extras existem
+        colunas_disponiveis = list(df.columns)
+        selecao_inicial = [c for c in ordem_padrao if c in colunas_disponiveis]
 
-        st.divider()
-        st.download_button(
-            label="📥 Baixar Arquivo Consolidado Completo",
-            data=output.getvalue(),
-            file_name="CONSOLIDADO_FINAL.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+        # Caixa de seleção múltipla
+        colunas_selecionadas = st.multiselect(
+            "Selecione e ordene as colunas que deseja exportar:",
+            options=colunas_disponiveis,
+            default=selecao_inicial
         )
 
-    except Exception as e:
-        st.error(f"Erro: {e}")
+        if not colunas_selecionadas:
+            st.warning("⚠️ Selecione pelo menos uma coluna para exportar.")
+        else:
+            # 3. Filtrar o DataFrame com a seleção do usuário
+            df_final = df[colunas_selecionadas]
+            
+            # Visualização prévia no site
+            st.write("Prévia dos dados (10 primeiras linhas):")
+            st.dataframe(df_final.head(10))
+
+            # 4. Processamento com Estilos
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_final.to_excel(writer, index=False, sheet_name='Planilha')
+                ws = writer.sheets['Planilha']
+                
+                amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+                fonte = Font(name='Calibri', size=11, bold=False)
+
+                for col_idx, col_cells in enumerate(ws.columns, 1):
+                    header = ws.cell(row=1, column=col_idx)
+                    nome = str(header.value).strip()
+                    
+                    # Mantém a lógica de cores (se a coluna existir na nova planilha)
+                    # Amarelo para as primeiras 9 ou Status
+                    if col_idx <= 9 or nome == "Status Contrato":
+                        header.fill = amarelo
+                    # Verde se for uma das últimas 4 colunas exportadas
+                    elif col_idx > len(colunas_selecionadas) - 4:
+                        header.fill = verde
+                    
+                    for cell in col_cells:
+                        cell.font = fonte
+                    ws.column_dimensions[header.column_letter].width = 22
+
+            st.success(f"✅ Planilha com {len(colunas_selecionadas)} colunas pronta!")
+            st.download_button(
+                label="📥 Baixar Planilha Personalizada",
+                data=output.getvalue(),
+                file_name="PLANILHA_PERSONALIZADA.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
