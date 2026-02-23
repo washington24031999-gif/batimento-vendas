@@ -1,100 +1,84 @@
 import sys
 from types import ModuleType
 
-# Correção técnica para compatibilidade com Python 3.13 (imghdr)
+# Correção técnica para compatibilidade com Python 3.13
 if 'imghdr' not in sys.modules:
     sys.modules['imghdr'] = ModuleType('imghdr')
 
 import streamlit as st
 import pandas as pd
-from openpyxl.styles import PatternFill, Font
+from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string
 from io import BytesIO
 
-st.set_page_config(page_title="Netmania Optimizer", layout="wide")
-st.title("📊 Estruturador de Planilhas Personalizado")
+st.set_page_config(page_title="Netmania Mapper Automático", layout="wide")
 
-arquivo = st.file_uploader("Selecione o arquivo (Excel ou CSV)", type=['xlsx', 'csv', 'xlsm'])
+st.title("🚀 Processador DE/PARA Automático")
+st.markdown("O sistema seguirá rigorosamente o mapeamento das colunas AK, H, I, J, etc., para as colunas B, C, D, E...")
 
-if arquivo:
-    try:
-        # 1. Leitura
-        if arquivo.name.lower().endswith('.csv'):
-            df = pd.read_csv(arquivo, sep=None, engine='python', encoding='latin-1')
-        else:
-            df = pd.read_excel(arquivo)
+# --- ÁREA DE UPLOAD ---
+col1, col2 = st.columns(2)
+with col1:
+    arquivo_proto = st.file_uploader("1. ORIGEM: Relatório de Protocolos", type=['xlsx', 'xlsm'])
+with col2:
+    arquivo_result = st.file_uploader("2. DESTINO: Arquivo Resultante (Modelo)", type=['xlsx', 'xlsm'])
+
+if arquivo_proto and arquivo_result:
+    if st.button("🔥 Iniciar Mapeamento e Gerar Arquivo", use_container_width=True):
+        try:
+            # 1. Carregar os DataFrames
+            # Usamos o openpyxl para ler as letras das colunas corretamente
+            df_origem = pd.read_excel(arquivo_proto)
+            df_modelo = pd.read_excel(arquivo_result)
             
-        df.columns = [str(c).strip() for c in df.columns]
+            # Criamos um DataFrame novo com a mesma estrutura do modelo, mas vazio
+            df_final = pd.DataFrame(columns=df_modelo.columns, index=range(len(df_origem)))
 
-        # 2. Filtro de Status
-        if 'Status Contrato' in df.columns:
-            df = df[df['Status Contrato'].str.lower() != 'cancelado']
+            # 2. Dicionário de Mapeamento (DE: PARA)
+            # Formato: 'Letra_Origem': 'Letra_Destino'
+            mapeamento_letras = {
+                'AK': 'B', 'H': 'C', 'I': 'D', 'J': 'E',
+                'K': 'F', 'P': 'G', 'AO': 'H', 'AU': 'I',
+                'AV': 'J', 'AS': 'K', 'AQ': 'L', 'AL': 'N'
+            }
 
-        # --- SEÇÃO DE PERSONALIZAÇÃO ---
-        st.subheader("⚙️ Personalize sua exportação")
-        
-        # Ordem padrão sugerida
-        ordem_padrao = [
-            'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
-            'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
-            'Vendedor 1', 'Endereco Ativacao', 'CEP', 'Cidade', 'Servico Ativado', 
-            'Val Serv Ativado', 'Status Contrato', 'Assinatura Contrato', 'Vendedor 2', 
-            'Origem', 'Valor Primeira Mensalidade'
-        ]
-        
-        # Identifica quais colunas da ordem padrão existem no arquivo e quais outras extras existem
-        colunas_disponiveis = list(df.columns)
-        selecao_inicial = [c for c in ordem_padrao if c in colunas_disponiveis]
+            def get_col_by_letter(df, letter):
+                """Retorna a série da coluna baseada na letra do Excel"""
+                idx = column_index_from_string(letter) - 1
+                return df.iloc[:, idx] if idx < len(df.columns) else None
 
-        # Caixa de seleção múltipla
-        colunas_selecionadas = st.multiselect(
-            "Selecione e ordene as colunas que deseja exportar:",
-            options=colunas_disponiveis,
-            default=selecao_inicial
-        )
+            # 3. Execução do De/Para
+            for de, para in mapeamento_letras.items():
+                try:
+                    col_data = get_col_by_letter(df_origem, de)
+                    dest_idx = column_index_from_string(para) - 1
+                    
+                    if col_data is not None and dest_idx < len(df_final.columns):
+                        df_final.iloc[:, dest_idx] = col_data.values
+                except Exception as e:
+                    st.warning(f"Não foi possível mapear {de} -> {para}: {e}")
 
-        if not colunas_selecionadas:
-            st.warning("⚠️ Selecione pelo menos uma coluna para exportar.")
-        else:
-            # 3. Filtrar o DataFrame com a seleção do usuário
-            df_final = df[colunas_selecionadas]
-            
-            # Visualização prévia no site
-            st.write("Prévia dos dados (10 primeiras linhas):")
-            st.dataframe(df_final.head(10))
+            # 4. Filtro de Status (Regra original mantida)
+            # Busca a coluna 'Status Contrato' no resultado final caso ela exista
+            if 'Status Contrato' in df_final.columns:
+                df_final = df_final[df_final['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
-            # 4. Processamento com Estilos
+            # 5. Exportação
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Planilha')
-                ws = writer.sheets['Planilha']
-                
-                amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-                verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
-                fonte = Font(name='Calibri', size=11, bold=False)
+                df_final.to_excel(writer, index=False)
+            
+            st.success("✅ Mapeamento fixo concluído!")
+            st.dataframe(df_final.head(10))
 
-                for col_idx, col_cells in enumerate(ws.columns, 1):
-                    header = ws.cell(row=1, column=col_idx)
-                    nome = str(header.value).strip()
-                    
-                    # Mantém a lógica de cores (se a coluna existir na nova planilha)
-                    # Amarelo para as primeiras 9 ou Status
-                    if col_idx <= 9 or nome == "Status Contrato":
-                        header.fill = amarelo
-                    # Verde se for uma das últimas 4 colunas exportadas
-                    elif col_idx > len(colunas_selecionadas) - 4:
-                        header.fill = verde
-                    
-                    for cell in col_cells:
-                        cell.font = fonte
-                    ws.column_dimensions[header.column_letter].width = 22
-
-            st.success(f"✅ Planilha com {len(colunas_selecionadas)} colunas pronta!")
             st.download_button(
-                label="📥 Baixar Planilha Personalizada",
+                label="📥 Baixar Arquivo Resultante",
                 data=output.getvalue(),
-                file_name="PLANILHA_PERSONALIZADA.xlsx",
+                file_name="RESULTADO_MAPEADO.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    except Exception as e:
-        st.error(f"Erro: {e}")
+        except Exception as e:
+            st.error(f"Erro crítico: {e}. Certifique-se de que os arquivos têm as colunas mencionadas.")
+else:
+    st.info("Aguardando upload dos arquivos para aplicar as regras de colunas (AK->B, H->C, etc).")
