@@ -11,10 +11,9 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import column_index_from_string
 from io import BytesIO
 
-st.set_page_config(page_title="Netmania Multi-Abas", layout="wide")
-st.title("📊 Gerador de Planilha com Abas (Ativações & Reativações)")
+st.set_page_config(page_title="Netmania Multi-Abas Full", layout="wide")
+st.title("📊 Gerador de Planilha (Ativações & Reativações)")
 
-# --- ÁREA DE UPLOAD ---
 col1, col2 = st.columns(2)
 with col1:
     arquivo_base = st.file_uploader("1. Selecione a BASE PRINCIPAL", type=['xlsx', 'csv', 'xlsm'])
@@ -31,43 +30,42 @@ if arquivo_base and arquivo_proto:
         
         df_ativacoes.columns = [str(c).strip() for c in df_ativacoes.columns]
 
-        # Filtro de Status para Ativações
+        # Garantir que o filtro não seja excessivo
         if 'Status Contrato' in df_ativacoes.columns:
-            df_ativacoes = df_ativacoes[df_ativacoes['Status Contrato'].str.lower() != 'cancelado']
+            df_ativacoes = df_ativacoes[df_ativacoes['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
         # --- 2. PROCESSAMENTO DA ABA 'REATIVAÇÕES' ---
+        # Removido o 'nrows' para garantir leitura total
         df_proto_raw = pd.read_excel(arquivo_proto)
 
-        # Criamos o DataFrame estruturado (A até N)
+        # Criamos o DataFrame estruturado com o exato número de linhas do arquivo de origem
         colunas_letras = [chr(65 + i) for i in range(14)] # A até N
         df_reativacoes = pd.DataFrame(columns=colunas_letras, index=range(len(df_proto_raw)))
 
-        # Mapeamento Fixo DE (Protocolo) -> PARA (Letra Destino)
         mapeamento = {
             'AK': 'B', 'H': 'C', 'I': 'D', 'J': 'E',
             'K': 'F', 'P': 'G', 'AO': 'H', 'AU': 'I',
             'AV': 'J', 'AS': 'K', 'AQ': 'L', 'AL': 'N'
         }
 
+        # Preenchimento total dos dados
         for de, para in mapeamento.items():
             try:
                 idx_origem = column_index_from_string(de) - 1
                 idx_destino = column_index_from_string(para) - 1
                 
                 if idx_origem < len(df_proto_raw.columns):
-                    df_reativacoes.iloc[:, idx_destino] = df_proto_raw.iloc[:, idx_origem]
-            except:
+                    # Usamos .values para garantir a cópia de toda a coluna
+                    df_reativacoes.iloc[:, idx_destino] = df_proto_raw.iloc[:, idx_origem].values
+            except Exception as e:
                 continue
 
-        # --- 3. GERAÇÃO DO ARQUIVO EXCEL COM DUAS ABAS ---
+        # --- 3. GERAÇÃO DO ARQUIVO FINAL ---
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Salva Ativações
             df_ativacoes.to_excel(writer, index=False, sheet_name='ATIVAÇÕES')
-            # Salva Reativações
             df_reativacoes.to_excel(writer, index=False, sheet_name='REATIVAÇÕES')
 
-            # Formatação Visual para ambas as abas
             amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             fonte_bold = Font(bold=True, name='Calibri')
 
@@ -80,23 +78,15 @@ if arquivo_base and arquivo_proto:
                     header.alignment = Alignment(horizontal='center')
                     ws.column_dimensions[header.column_letter].width = 22
 
-        st.success("✅ Arquivo processado com sucesso!")
-        
-        # Prévia simples das abas
-        tab1, tab2 = st.tabs(["👁️ Prévia Ativações", "👁️ Prévia Reativações"])
-        with tab1:
-            st.dataframe(df_ativacoes.head(10))
-        with tab2:
-            st.dataframe(df_reativacoes.head(10))
+        st.success(f"✅ Processamento concluído! Ativações: {len(df_ativacoes)} linhas | Reativações: {len(df_reativacoes)} linhas.")
 
+        # Botão de download
         st.download_button(
-            label="📥 Baixar Arquivo Consolidado (2 Abas)",
+            label="📥 Baixar Arquivo Consolidado Completo",
             data=output.getvalue(),
-            file_name="CONSOLIDADO_ATIV_REATIV.xlsx",
+            file_name="CONSOLIDADO_COMPLETO.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
         st.error(f"Erro ao processar: {e}")
-else:
-    st.info("💡 Suba a Base Principal e o Relatório de Protocolos para gerar o arquivo com as abas ATIVAÇÕES e REATIVAÇÕES.")
