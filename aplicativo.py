@@ -11,105 +11,90 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import column_index_from_string
 from io import BytesIO
 
-st.set_page_config(page_title="Netmania Optimizer Pro", layout="wide")
-st.title("📊 Estruturador de Planilhas + Relatório de Protocolos")
+st.set_page_config(page_title="Netmania Super Optimizer", layout="wide")
+st.title("📊 Consolidador de Planilhas (Base + Protocolos)")
 
-# --- SEÇÃO DE UPLOAD ---
+# --- ÁREA DE UPLOAD ---
 col1, col2 = st.columns(2)
 with col1:
-    arquivo_base = st.file_uploader("Selecione a Base Principal", type=['xlsx', 'csv', 'xlsm'])
+    arquivo_base = st.file_uploader("1. Selecione a BASE PRINCIPAL", type=['xlsx', 'csv', 'xlsm'])
 with col2:
-    arquivo_proto = st.file_uploader("Selecione o Relatório de Protocolos (Opcional)", type=['xlsx', 'xlsm'])
+    arquivo_proto = st.file_uploader("2. Selecione o RELATÓRIO DE PROTOCOLOS", type=['xlsx', 'xlsm'])
 
-if arquivo_base:
+if arquivo_base and arquivo_proto:
     try:
-        # 1. Leitura do Arquivo Base
+        # 1. Leitura da Base Principal
         if arquivo_base.name.lower().endswith('.csv'):
-            df = pd.read_csv(arquivo_base, sep=None, engine='python', encoding='latin-1')
+            df_base = pd.read_csv(arquivo_base, sep=None, engine='python', encoding='latin-1')
         else:
-            df = pd.read_excel(arquivo_base)
+            df_base = pd.read_excel(arquivo_base)
         
-        df.columns = [str(c).strip() for c in df.columns]
+        df_base.columns = [str(c).strip() for c in df_base.columns]
 
-        # 2. Filtro de Status (Regra Original)
-        if 'Status Contrato' in df.columns:
-            df = df[df['Status Contrato'].str.lower() != 'cancelado']
+        # Filtro de Status (Remove cancelados da base)
+        if 'Status Contrato' in df_base.columns:
+            df_base = df_base[df_base['Status Contrato'].str.lower() != 'cancelado']
 
-        # 3. Lógica se houver Relatório de Protocolos (DE/PARA Automático)
-        if arquivo_proto:
-            st.info("🔄 Relatório de Protocolos detectado. Aplicando mapeamento fixo...")
-            df_proto = pd.read_excel(arquivo_proto)
-            
-            # Criamos o DataFrame de saída com colunas A até N (14 colunas)
-            colunas_resultado = [chr(65 + i) for i in range(14)] # A, B, C... N
-            df_final = pd.DataFrame(columns=colunas_resultado, index=range(len(df_proto)))
+        # 2. Leitura do Relatório de Protocolos
+        df_proto_raw = pd.read_excel(arquivo_proto)
 
-            # Dicionário DE (Letra no Protocolo) -> PARA (Letra no Resultado)
-            mapeamento = {
-                'AK': 'B', 'H': 'C', 'I': 'D', 'J': 'E',
-                'K': 'F', 'P': 'G', 'AO': 'H', 'AU': 'I',
-                'AV': 'J', 'AS': 'K', 'AQ': 'L', 'AL': 'N'
-            }
+        # 3. CRIAÇÃO DA PLANILHA ÚNICA CONSOLIDADA
+        # Criamos um DataFrame vazio com as colunas de A até N (14 colunas iniciais)
+        colunas_letras = [chr(65 + i) for i in range(14)] # A até N
+        df_consolidado = pd.DataFrame(columns=colunas_letras, index=range(len(df_proto_raw)))
 
-            for de, para in mapeamento.items():
-                try:
-                    idx_origem = column_index_from_string(de) - 1
-                    idx_destino = column_index_from_string(para) - 1
-                    
-                    if idx_origem < len(df_proto.columns):
-                        df_final.iloc[:, idx_destino] = df_proto.iloc[:, idx_origem]
-                except:
-                    continue
-            
-            st.success("✅ Mapeamento do Relatório de Protocolos aplicado!")
-        
-        else:
-            # Fluxo Original: Seleção Manual de Colunas
-            st.subheader("⚙️ Personalize sua exportação manual")
-            ordem_padrao = [
-                'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
-                'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
-                'Vendedor 1', 'Endereco Ativacao', 'CEP', 'Cidade', 'Servico Ativado', 
-                'Val Serv Ativado', 'Status Contrato', 'Assinatura Contrato', 'Vendedor 2', 
-                'Origem', 'Valor Primeira Mensalidade'
-            ]
-            colunas_disponiveis = list(df.columns)
-            selecao_inicial = [c for c in ordem_padrao if c in colunas_disponiveis]
+        # MAPEAMENTO FIXO (Relatório Protocolos -> Colunas da Planilha Final)
+        # De (Protocolo) -> Para (Letra na Final)
+        mapeamento = {
+            'AK': 'B', 'H': 'C', 'I': 'D', 'J': 'E',
+            'K': 'F', 'P': 'G', 'AO': 'H', 'AU': 'I',
+            'AV': 'J', 'AS': 'K', 'AQ': 'L', 'AL': 'N'
+        }
 
-            colunas_selecionadas = st.multiselect(
-                "Selecione as colunas da Base Principal:",
-                options=colunas_disponiveis,
-                default=selecao_inicial
-            )
-            df_final = df[colunas_selecionadas] if colunas_selecionadas else df
-
-        # --- PREPARAÇÃO DO DOWNLOAD ---
-        if not df_final.empty:
-            st.write("Prévia dos dados:")
-            st.dataframe(df_final.head(10))
-
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Planilha')
-                ws = writer.sheets['Planilha']
+        for de, para in mapeamento.items():
+            try:
+                idx_origem = column_index_from_string(de) - 1
+                idx_destino = column_index_from_string(para) - 1
                 
-                # Estilização básica
-                amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-                fonte = Font(name='Calibri', size=11)
+                if idx_origem < len(df_proto_raw.columns):
+                    df_consolidado.iloc[:, idx_destino] = df_proto_raw.iloc[:, idx_origem]
+            except:
+                continue
 
-                for col_idx, col_cells in enumerate(ws.columns, 1):
-                    header = ws.cell(row=1, column=col_idx)
-                    header.fill = amarelo
-                    for cell in col_cells:
-                        cell.font = fonte
-                    ws.column_dimensions[header.column_letter].width = 20
+        # 4. INTEGRAÇÃO: Adicionamos as colunas da Base Principal ao lado do mapeamento
+        # Isso gera uma única tabela larga contendo tudo
+        df_final = pd.concat([df_consolidado.reset_index(drop=True), df_base.reset_index(drop=True)], axis=1)
 
-            st.download_button(
-                label="📥 Baixar Planilha Finalizada",
-                data=output.getvalue(),
-                file_name="PLANILHA_PROCESSADA.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        # --- EXPORTAÇÃO ---
+        st.subheader("✅ Tudo pronto!")
+        st.write(f"Planilha consolidada com {len(df_final)} linhas.")
+        
+        st.dataframe(df_final.head(10))
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Planilha_Consolidada')
+            ws = writer.sheets['Planilha_Consolidada']
+            
+            # Formatação
+            amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            fonte_cabecalho = Font(bold=True, name='Calibri')
+            
+            for col_idx in range(1, len(df_final.columns) + 1):
+                header = ws.cell(row=1, column=col_idx)
+                header.fill = amarelo
+                header.font = fonte_cabecalho
+                header.alignment = Alignment(horizontal='center')
+                ws.column_dimensions[header.column_letter].width = 20
+
+        st.download_button(
+            label="📥 Baixar Planilha Única Consolidada",
+            data=output.getvalue(),
+            file_name="CONSOLIDADO_NETMANIA.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro ao consolidar os dados: {e}")
+else:
+    st.info("💡 Para gerar a planilha única, suba os dois arquivos acima.")
