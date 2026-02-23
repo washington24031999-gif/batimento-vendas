@@ -94,3 +94,7 @@ if arquivo:
                 data=output.getvalue(),
                 file_name="PLANILHA_PERSONALIZADA.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    except Exception as e:
+        st.error(f"Erro: {e}")
