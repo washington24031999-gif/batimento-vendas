@@ -25,11 +25,10 @@ def carregar_dados_flexivel(arq, sem_header=False):
         st.error(f"Erro ao ler arquivo {arq.name}: {e}")
         return None
 
-# --- FUNÇÃO PARA LIMPAR DATAS (REMOVE HORÁRIO) ---
+# --- FUNÇÃO PARA LIMPAR DATAS ---
 def formatar_apenas_data(valor):
     try:
-        if pd.isna(valor) or valor == "": return ""
-        # Converte para datetime e retorna apenas a data formatada
+        if pd.isna(valor) or valor == "" or valor == "REATIVAÇÃO": return valor
         dt = pd.to_datetime(valor)
         return dt.strftime('%d/%m/%Y')
     except:
@@ -50,7 +49,7 @@ if arquivo_ativacao and arquivo_protocolos:
             df_ativ.columns = [str(c).strip() for c in df_ativ.columns]
             df_prot.columns = [str(c).strip() for c in df_prot.columns]
 
-            # Filtro de cancelados
+            # Filtro automático de cancelados na ativação
             if 'Status Contrato' in df_ativ.columns:
                 df_ativ = df_ativ[df_ativ['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
@@ -77,7 +76,6 @@ if arquivo_ativacao and arquivo_protocolos:
                     reat_rows = []
                     for _, row in df_reat_raw.iloc[1:].iterrows():
                         try:
-                            # Aplicando formatar_apenas_data nas colunas de data (AJ=35, AM=38, I=8, G=6, K=10)
                             reat_rows.append({
                                 'Codigo Cliente': "REATIVAÇÃO",
                                 'Contrato': row[35],
@@ -117,9 +115,8 @@ if arquivo_ativacao and arquivo_protocolos:
             
             df_export = df_final_consolidado[[c for c in colunas_finais if c in df_final_consolidado.columns]]
             
-            # Garante que as datas da planilha 1 também fiquem sem horário
-            datas_col = ['Data Contrato', 'Prazo Ativacao Contrato', 'Ativacao Contrato', 'Ativacao Conexao']
-            for col in datas_col:
+            # Formatar datas
+            for col in ['Data Contrato', 'Prazo Ativacao Contrato', 'Ativacao Contrato', 'Ativacao Conexao']:
                 if col in df_export.columns:
                     df_export[col] = df_export[col].apply(formatar_apenas_data)
 
@@ -130,7 +127,7 @@ if arquivo_ativacao and arquivo_protocolos:
                 df_export.to_excel(writer, index=False, sheet_name='Netmania')
                 ws = writer.sheets['Netmania']
                 
-                # Estilos de Cores e Alinhamento
+                # Estilos visuais
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
                 centro = Alignment(horizontal='center', vertical='center')
@@ -138,7 +135,6 @@ if arquivo_ativacao and arquivo_protocolos:
 
                 for col_idx, col_cells in enumerate(ws.columns, 1):
                     header = ws.cell(row=1, column=col_idx)
-                    # Regras de cores
                     if header.value == "Status Contrato": header.fill = amarelo
                     elif col_idx in [5, 15] or col_idx > 15: header.fill = verde
                     elif col_idx <= 9: header.fill = amarelo
@@ -148,17 +144,30 @@ if arquivo_ativacao and arquivo_protocolos:
                         cell.border = vazio
                     ws.column_dimensions[header.column_letter].width = 25
 
-            st.success("✅ Processamento concluído: Datas formatadas sem horário.")
+            st.success("✅ **Relatório Gerado com Sucesso!** O arquivo está pronto para download com as datas tratadas e o mapeamento concluído.")
             st.download_button("📥 Baixar Planilha Final", output.getvalue(), "NETMANIA_CONSOLIDADO.xlsx")
 
     except Exception as e:
         st.error(f"Erro geral: {e}")
 
-# --- TUTORIAL ---
+# --- TUTORIAL NO RODAPÉ ---
 st.divider()
-st.subheader("📖 Guia Etapa 3")
-st.markdown("""
-* **Datas:** Todas as colunas de data foram configuradas para exibir apenas **DIA/MÊS/ANO**.
-* **Mapeamento:** Os dados de REATIVAÇÃO são inseridos abaixo dos dados de ATIVAÇÃO.
-* **Formatos:** O sistema aceita CSV e Excel simultaneamente.
-""")
+st.subheader("📖 Orientações para Preparação das Planilhas")
+
+t1, t2, t3 = st.columns(3)
+
+with t1:
+    st.markdown("### 📄 Planilha de Ativação")
+    st.info("Não precisa ser limpa de forma manual. O próprio sistema já realiza o tratamento e limpeza dos dados automaticamente.")
+
+with t2:
+    st.markdown("### 📋 Planilha de Protocolos")
+    st.warning("Esta planilha serve para puxar os ganhos de venda e **precisa de tratamento prévio**:")
+    st.write("- Filtrar por: **Comercial Interno e Externo**.")
+    st.write("- Filtrar por Status de Protocolo: **Abertura**.")
+
+with t3:
+    st.markdown("### 🔄 Planilha de Reativações")
+    st.success("Para garantir a precisão dos dados de reativação:")
+    st.write("- Retirar valores duplicados.")
+    st.write("- Filtrar na **Categoria 2** de reativações.")
