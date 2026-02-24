@@ -58,13 +58,13 @@ if arquivo_ativacao and arquivo_protocolos:
                 df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
                 df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
 
-                # Prepara protocolos (remove duplicatas para não inflar a ativação)
+                # Prepara protocolos
                 df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
                 
-                # Merge: Traz o Responsável da planilha de protocolos
+                # Merge
                 df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
                 
-                # Regra de Segurança: Preenchimento com Vendedor 1 se estiver vazio
+                # Segurança: Vendedor 1 no lugar de Responsavel vazio
                 if 'Responsavel' in df.columns and 'Vendedor 1' in df.columns:
                     df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
                     df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
@@ -74,7 +74,7 @@ if arquivo_ativacao and arquivo_protocolos:
                 st.error("⚠️ Coluna 'Responsavel' não encontrada na planilha de Protocolos.")
                 df = df_ativacao
         else:
-            st.error("⚠️ Verifique as colunas de vínculo: 'Nome Cliente' (Ativação) e 'Cliente' (Protocolos).")
+            st.error("⚠️ Verifique as colunas de vínculo: 'Nome Cliente' e 'Cliente'.")
             df = df_ativacao
 
         # --- SEÇÃO DE PERSONALIZAÇÃO ---
@@ -117,25 +117,29 @@ if arquivo_ativacao and arquivo_protocolos:
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # Cores: E (5) e O (15) em VERDE
-                    if col_idx == 5 or col_idx == 15: 
+                    # REGRAS DE CORES:
+                    # 1. Se for 'Status Contrato', SEMPRE AMARELO
+                    if nome_col == "Status Contrato":
+                        header.fill = amarelo
+                    # 2. Se for Coluna E (5) ou Coluna O (15) SEM ser Status Contrato, fica VERDE
+                    elif col_idx == 5 or col_idx == 15:
                         header.fill = verde
-                    # 4 últimas em VERDE
-                    elif col_idx > len(colunas_selecionadas) - 4: 
+                    # 3. Se forem as últimas 4 colunas, fica VERDE
+                    elif col_idx > len(colunas_selecionadas) - 4:
                         header.fill = verde
-                    # Iniciais (até 9) e Status em AMARELO
-                    elif col_idx <= 9 or nome_col == "Status Contrato": 
+                    # 4. Se estiver entre as 9 primeiras, fica AMARELO
+                    elif col_idx <= 9:
                         header.fill = amarelo
                     
                     for cell in col_cells:
                         cell.font = fonte
                     ws.column_dimensions[header.column_letter].width = 22
 
-            st.success("✅ Tudo pronto! Responsáveis preenchidos com sucesso.")
+            st.success("✅ Estilização aplicada: 'Status Contrato' em destaque amarelo.")
             st.download_button(
-                label="📥 Baixar Planilha Consolidada",
+                label="📥 Baixar Planilha Final",
                 data=output.getvalue(),
-                file_name="PLANILHA_NETMANIA_CONSOLIDADA.xlsx",
+                file_name="PLANILHA_CONSOLIDADA_NETMANIA.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
