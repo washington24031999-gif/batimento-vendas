@@ -72,18 +72,22 @@ if arquivo:
                     header = ws.cell(row=1, column=col_idx)
                     nome = str(header.value).strip()
                     
-                    # ALTERAÇÃO: Coluna E (5) e Coluna O (15) agora forçadas para Amarelo
-                    # Mantendo também a lógica original de colunas iniciais e finais
-                    if col_idx <= 9 or nome == "Status Contrato" or col_idx == 5 or col_idx == 15:
-                        header.fill = amarelo
+                    # LÓGICA DE CORES:
+                    # Prioridade 1: Coluna E (5) e Coluna O (15) sempre VERDE
+                    if col_idx == 5 or col_idx == 15:
+                        header.fill = verde
+                    # Prioridade 2: Outras colunas finais (últimas 4) em VERDE
                     elif col_idx > len(colunas_selecionadas) - 4:
                         header.fill = verde
+                    # Prioridade 3: Primeiras colunas e Status em AMARELO
+                    elif col_idx <= 9 or nome == "Status Contrato":
+                        header.fill = amarelo
                     
                     for cell in col_cells:
                         cell.font = fonte
                     ws.column_dimensions[header.column_letter].width = 22
 
-            st.success(f"✅ Planilha com {len(df_final)} linhas e {len(colunas_selecionadas)} colunas pronta!")
+            st.success(f"✅ Planilha com {len(df_final)} linhas pronta! Colunas E e O configuradas como verde.")
             st.download_button(
                 label="📥 Baixar Planilha Completa",
                 data=output.getvalue(),
