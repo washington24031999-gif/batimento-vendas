@@ -14,7 +14,7 @@ st.set_page_config(page_title="Netmania Optimizer", layout="wide")
 
 st.title("📊 Estruturador de Planilhas Personalizado - Etapa 3")
 
-# --- SEÇÃO DE UPLOAD (TRÊS PLANILHAS) ---
+# --- SEÇÃO DE UPLOAD ---
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -36,11 +36,11 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
-        # Limpeza agressiva de nomes de colunas
+        # Limpeza de nomes de colunas
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
-        # 1. Filtro Inicial (Remover Cancelados da Ativação)
+        # 1. Filtro Inicial (Ativação)
         if 'Status Contrato' in df_ativacao.columns:
             df_ativacao = df_ativacao[df_ativacao['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
@@ -49,62 +49,64 @@ if arquivo_ativacao and arquivo_protocolos:
             df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
             df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
 
-            # Captura o Responsável do protocolo de abertura
+            # Merge com Protocolos para pegar o Responsável
             df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
             df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left')
             
-            # REGRA DE SEGURANÇA: Vendedor 1 assume se Responsavel estiver vazio
+            # Segurança Vendedor 1
             if 'Vendedor 1' in df.columns:
                 df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
                 df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
 
-            # 3. Integração do Relatório de Reativações (Se houver upload)
+            # --- NOVA LÓGICA: PROCV TOTAL PARA REATIVAÇÕES ---
             if arquivo_reativacao:
                 df_reat = carregar_dados(arquivo_reativacao)
                 df_reat.columns = [str(c).strip() for c in df_reat.columns]
                 
                 if 'Cliente' in df_reat.columns:
+                    # Chave de busca: Nome do Cliente
                     df_reat['_JOIN_KEY'] = df_reat['Cliente'].astype(str).str.strip().str.upper()
                     
-                    # Selecionamos colunas chave da estrutura de reativação para o merge inicial
-                    colunas_reat_desejadas = ['_JOIN_KEY', 'Tipo Solicitacao', 'Situacao', 'Protocolo']
-                    colunas_existentes = [c for c in colunas_reat_desejadas if c in df_reat.columns]
+                    # Remove duplicatas da reativação para não gerar linhas repetidas no PROCV
+                    df_reat_clean = df_reat.drop_duplicates(subset=['_JOIN_KEY'])
                     
-                    df_reat_clean = df_reat.drop_duplicates(subset=['_JOIN_KEY'])[colunas_existentes]
-                    # Merge com sufixo para evitar conflito com 'Protocolo' da planilha 2
-                    df = pd.merge(df, df_reat_clean, on='_JOIN_KEY', how='left', suffixes=('', '_Reat'))
-                    st.toast("✅ Reativações vinculadas!", icon="🔄")
+                    # PROCV de todas as colunas (Merge Left)
+                    # O sufixo _reat evita conflitos se houver colunas com o mesmo nome
+                    df = pd.merge(df, df_reat_clean, on='_JOIN_KEY', how='left', suffixes=('', '_reat'))
+                    st.success("✅ Cruzamento com Reativações concluído! Verifique as novas colunas no seletor.")
 
             df = df.drop(columns=['_JOIN_KEY'])
         else:
-            st.warning("⚠️ Coluna 'Nome Cliente' ou 'Cliente' não encontrada para o vínculo.")
             df = df_ativacao
 
         # --- SEÇÃO DE PERSONALIZAÇÃO ---
         st.subheader("⚙️ Configurações da Exportação")
         
-        ordem_padrao = [
+        # Define as colunas que você quer ver primeiro por padrão
+        colunas_padrao = [
             'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
             'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
-            'Vendedor 1', 'Endereco Ativacao', 'CEP', 'Cidade', 'Servico Ativado', 
-            'Val Serv Ativado', 'Status Contrato', 'Assinatura Contrato', 'Vendedor 2', 
-            'Origem', 'Valor Primeira Mensalidade'
+            'Vendedor 1', 'Status Contrato'
         ]
         
         colunas_disponiveis = list(df.columns)
-        selecao_inicial = [c for c in ordem_padrao if c in colunas_disponiveis]
+        selecao_inicial = [c for c in colunas_padrao if c in colunas_disponiveis]
 
-        col_selecionadas = st.multiselect("Selecione e ordene as colunas:", options=colunas_disponiveis, default=selecao_inicial)
+        col_selecionadas = st.multiselect(
+            "Selecione e ordene as colunas (incluindo as de reativação):", 
+            options=colunas_disponiveis, 
+            default=selecao_inicial
+        )
 
         if col_selecionadas:
             df_final = df[col_selecionadas]
             st.dataframe(df_final, use_container_width=True)
 
-            # Estilização Excel (Centralizado, Sem Bordas, Cores Específicas)
+            # Estilização Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Consolidado')
-                ws = writer.sheets['Consolidado']
+                df_final.to_excel(writer, index=False, sheet_name='Planilha_Final')
+                ws = writer.sheets['Planilha_Final']
                 
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
@@ -116,7 +118,7 @@ if arquivo_ativacao and arquivo_protocolos:
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # Regras de Cores do Cabeçalho
+                    # Cores dinâmicas
                     if nome_col == "Status Contrato":
                         header.fill = amarelo
                     elif col_idx == 5 or col_idx == 15:
@@ -126,39 +128,27 @@ if arquivo_ativacao and arquivo_protocolos:
                     elif col_idx <= 9:
                         header.fill = amarelo
                     
-                    # Aplicação Geral de Estilo
                     for cell in col_cells:
                         cell.font = fonte
                         cell.alignment = centralizado
                         cell.border = sem_bordas
                     ws.column_dimensions[header.column_letter].width = 25
 
-            st.download_button(label="📥 Baixar Planilha Final (Etapa 3)", data=output.getvalue(), file_name="FINAL_NETMANIA_OTIMIZADA.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                label="📥 Baixar Planilha Consolidada", 
+                data=output.getvalue(), 
+                file_name="CONSOLIDADO_REATIVACAO_NETMANIA.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
     except Exception as e:
         st.error(f"Erro no processamento: {e}")
 
-# --- TUTORIAL FIXO NO RODAPÉ ---
+# --- TUTORIAL ---
 st.divider()
-st.subheader("📖 Guia de Procedimentos e Tutorial")
-
-col_t1, col_t2 = st.columns(2)
-
-with col_t1:
-    st.markdown("""
-    #### 💡 Instruções para Planilha de Protocolos:
-    * **Estrutura:** Deve conter a coluna **'Responsavel'** logo após o nome do cliente.
-    * **Filtros Obrigatórios:** O arquivo deve ser extraído com os filtros *Protocolo Abertura* e *Equipe Comercial (Interno/Externo)*.
-    * **Vínculo:** O sistema cruza **'Nome Cliente'** (Ativação) com **'Cliente'** (Protocolos).
-    * **Segurança:** Caso o responsável não seja encontrado nos protocolos, o sistema usará o **Vendedor 1** automaticamente para evitar células vazias.
-    """)
-
-with col_t2:
-    st.markdown("""
-    #### 🔄 Relatório de Reativações (Planilha 3):
-    * **Objetivo:** Identificar clientes que reativaram serviços.
-    * **Processo:** O sistema anexa dados como *Tipo de Solicitação* e *Situação* ao relatório principal.
-    * **Customização:** Utilize o seletor de colunas acima para incluir campos adicionais (SLA, Cidade, Contrato, etc.) da estrutura de reativação.
-    """)
-
-st.info("⚠️ Verifique sempre se os nomes das colunas nas planilhas originais não possuem caracteres especiais extras se o sistema indicar que a coluna não foi encontrada.")
+st.subheader("📖 Guia de Procedimentos")
+st.markdown("""
+* **Vínculo de Reativação:** O sistema agora faz um **PROCV total**. Ele usa o campo 'Cliente' da planilha de reativação para buscar o 'Nome Cliente' na base principal.
+* **Colunas:** Todas as colunas da sua planilha de Reativações (Protocolo, SLA, Motivo, etc.) estão disponíveis para serem selecionadas no menu acima.
+* **Segurança:** A regra do Vendedor 1 para o Responsável continua ativa.
+""")
