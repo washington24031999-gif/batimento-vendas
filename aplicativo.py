@@ -1,7 +1,7 @@
 import sys
 from types import ModuleType
 
-# Correção técnica para compatibilidade com Python 3.13 (imghdr)
+# Correção técnica para compatibilidade com Python 3.13
 if 'imghdr' not in sys.modules:
     sys.modules['imghdr'] = ModuleType('imghdr')
 
@@ -11,6 +11,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from io import BytesIO
 
 st.set_page_config(page_title="Netmania Optimizer", layout="wide")
+
 st.title("📊 Estruturador de Planilhas Personalizado")
 
 # --- SEÇÃO DE UPLOAD ---
@@ -22,16 +23,6 @@ with col1:
 with col2:
     arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
 
-# Balão informativo
-st.info("""
-**💡 Instruções para Planilha de Protocolos:**
-* A planilha deve conter a coluna **'Responsavel'** logo após o nome do cliente.
-* **Filtros obrigatórios pré-upload:** Protocolo Abertura e Equipe Comercial (Interno/Externo).
-* **Regra de Responsabilidade:** O sistema busca o responsável pelo ganho na coluna 'Responsavel'.
-* **Vínculo:** O sistema cruza **'Nome Cliente'** (Ativação) com **'Cliente'** (Protocolos).
-* **Segurança:** Caso o responsável não seja encontrado nos protocolos, o sistema usará o **Vendedor 1** automaticamente.
-""")
-
 if arquivo_ativacao and arquivo_protocolos:
     try:
         def carregar_dados(arq):
@@ -42,35 +33,42 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
+        # Limpeza agressiva de nomes de colunas (remove espaços e caracteres invisíveis)
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
-        # 1. Filtro de Status na Ativação
+        # 1. Filtro de Status
         if 'Status Contrato' in df_ativacao.columns:
             df_ativacao = df_ativacao[df_ativacao['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
-        # 2. Cruzamento de Dados (Merge)
-        if 'Nome Cliente' in df_ativacao.columns and 'Cliente' in df_protocolos.columns:
+        # 2. Cruzamento de Dados
+        # Verificamos se as colunas necessárias existem
+        col_cliente_ativ = 'Nome Cliente'
+        col_cliente_prot = 'Cliente'
+        
+        if col_cliente_ativ in df_ativacao.columns and col_cliente_prot in df_protocolos.columns:
             if 'Responsavel' in df_protocolos.columns:
-                df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
-                df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
+                # Normalização para o Join
+                df_ativacao['_JOIN_KEY'] = df_ativacao[col_cliente_ativ].astype(str).str.strip().str.upper()
+                df_protocolos['_JOIN_KEY'] = df_protocolos[col_cliente_prot].astype(str).str.strip().str.upper()
 
                 df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
-                df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
+                df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left')
                 
-                if 'Responsavel' in df.columns and 'Vendedor 1' in df.columns:
+                # Regra de Segurança: Vendedor 1 assume se Responsavel for nulo
+                if 'Vendedor 1' in df.columns:
                     df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
                     df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
                 
                 df = df.drop(columns=['_JOIN_KEY'])
             else:
-                st.error("⚠️ Coluna 'Responsavel' não encontrada em Protocolos.")
+                st.error("⚠️ Coluna 'Responsavel' não encontrada na planilha de Protocolos.")
                 df = df_ativacao
         else:
-            st.error("⚠️ Verifique as colunas de vínculo.")
+            st.warning(f"⚠️ Colunas de vínculo ({col_cliente_ativ} / {col_cliente_prot}) não encontradas.")
             df = df_ativacao
 
-        # --- SEÇÃO DE PERSONALIZAÇÃO ---
+        # --- PERSONALIZAÇÃO ---
         st.subheader("⚙️ Personalize sua exportação")
         
         ordem_padrao = [
@@ -84,19 +82,13 @@ if arquivo_ativacao and arquivo_protocolos:
         colunas_disponiveis = list(df.columns)
         selecao_inicial = [c for c in ordem_padrao if c in colunas_disponiveis]
 
-        colunas_selecionadas = st.multiselect(
-            "Selecione e ordene as colunas:",
-            options=colunas_disponiveis,
-            default=selecao_inicial
-        )
+        col_selecionadas = st.multiselect("Selecione e ordene as colunas:", options=colunas_disponiveis, default=selecao_inicial)
 
-        if not colunas_selecionadas:
-            st.warning("⚠️ Selecione pelo menos uma coluna.")
-        else:
-            df_final = df[colunas_selecionadas]
+        if col_selecionadas:
+            df_final = df[col_selecionadas]
             st.dataframe(df_final, use_container_width=True)
 
-            # 4. Processamento com Estilos Excel
+            # Estilização Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_final.to_excel(writer, index=False, sheet_name='Planilha')
@@ -104,43 +96,27 @@ if arquivo_ativacao and arquivo_protocolos:
                 
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
-                fonte = Font(name='Calibri', size=11, bold=False)
-                # Centralização total
+                fonte = Font(name='Calibri', size=11)
                 centralizado = Alignment(horizontal='center', vertical='center')
-                # Configuração sem bordas
-                sem_bordas = Border(
-                    left=Side(style=None), 
-                    right=Side(style=None), 
-                    top=Side(style=None), 
-                    bottom=Side(style=None)
-                )
+                sem_bordas = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
 
                 for col_idx, col_cells in enumerate(ws.columns, 1):
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # 1. Regras de Cores (CABEÇALHO)
                     if nome_col == "Status Contrato":
                         header.fill = amarelo
                     elif col_idx == 5 or col_idx == 15:
                         header.fill = verde
-                    elif col_idx > len(colunas_selecionadas) - 4:
+                    elif col_idx > len(col_selecionadas) - 4:
                         header.fill = verde
                     elif col_idx <= 9:
                         header.fill = amarelo
                     
-                    # 2. Aplicar Centralização e Sem Bordas no Título
-                    header.alignment = centralizado
-                    header.border = sem_bordas
-                    
-                    # 3. Aplicar Estilos em Todas as Células da Coluna
                     for cell in col_cells:
                         cell.font = fonte
                         cell.alignment = centralizado
-                        # Se não for o título, você pode decidir manter ou remover bordas
-                        # Aqui removeremos do corpo também para manter o padrão limpo
                         cell.border = sem_bordas
-
                     ws.column_dimensions[header.column_letter].width = 25
 
             st.success("✅ Estilização concluída: Itens centralizados e títulos sem bordas.")
@@ -153,3 +129,24 @@ if arquivo_ativacao and arquivo_protocolos:
 
     except Exception as e:
         st.error(f"Erro no processamento: {e}")
+
+# --- TUTORIAL NO RODAPÉ ---
+st.divider()
+st.subheader("📖 Tutorial de Uso")
+t1, t2, t3 = st.columns(3)
+
+with t1:
+    st.markdown("### 1. Preparação")
+    st.write("Filtre a planilha de Protocolos por **Abertura** e **Equipe Comercial**. Ela deve conter a coluna 'Responsavel'.")
+
+with t2:
+    st.markdown("### 2. Cruzamento")
+    st.write("O sistema une os dados pelo nome do cliente. Se não houver protocolo, o **Vendedor 1** será o responsável.")
+
+with t3:
+    st.markdown("### 3. Download")
+    st.write("Clique no botão azul acima para baixar. O arquivo virá centralizado, sem bordas e colorido.")
+
+st.divider()
+# Botão para abrir o site em nova aba
+st.markdown('<div style="text-align: center;"><a href="https://www.google.com" target="_blank" style="text-decoration: none; border: 1px solid #ff4b4b; color: #ff4b4b; padding: 12px 30px; border-radius: 8px; font-weight: bold; display: inline-block;">🌐 Acessar Portal Netmania</a></div>', unsafe_allow_html=True)
