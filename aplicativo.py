@@ -30,125 +30,115 @@ if arquivo_ativacao and arquivo_protocolos:
     try:
         def carregar_dados(arq):
             if arq.name.lower().endswith('.csv'):
-                return pd.read_csv(arq, sep=None, engine='python', encoding='latin-1')
-            return pd.read_excel(arq)
+                return pd.read_csv(arq, sep=None, engine='python', encoding='latin-1', header=None)
+            return pd.read_excel(arq, header=None) # Lemos sem header para trabalhar com índices puros
 
-        df_ativacao = carregar_dados(arquivo_ativacao)
-        df_protocolos = carregar_dados(arquivo_protocolos)
-
-        # Limpeza de nomes de colunas
-        df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
-        df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
-
-        # 1. Filtro Inicial (Ativação)
-        if 'Status Contrato' in df_ativacao.columns:
-            df_ativacao = df_ativacao[df_ativacao['Status Contrato'].astype(str).str.lower() != 'cancelado']
-
-        # 2. Cruzamento Base (Ativação + Protocolos)
-        if 'Nome Cliente' in df_ativacao.columns and 'Cliente' in df_protocolos.columns:
-            df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
-            df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
-
-            # Merge com Protocolos para pegar o Responsável
-            df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
-            df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left')
-            
-            # Segurança Vendedor 1
-            if 'Vendedor 1' in df.columns:
-                df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
-                df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
-
-            # --- NOVA LÓGICA: PROCV TOTAL PARA REATIVAÇÕES ---
-            if arquivo_reativacao:
-                df_reat = carregar_dados(arquivo_reativacao)
-                df_reat.columns = [str(c).strip() for c in df_reat.columns]
-                
-                if 'Cliente' in df_reat.columns:
-                    # Chave de busca: Nome do Cliente
-                    df_reat['_JOIN_KEY'] = df_reat['Cliente'].astype(str).str.strip().str.upper()
-                    
-                    # Remove duplicatas da reativação para não gerar linhas repetidas no PROCV
-                    df_reat_clean = df_reat.drop_duplicates(subset=['_JOIN_KEY'])
-                    
-                    # PROCV de todas as colunas (Merge Left)
-                    # O sufixo _reat evita conflitos se houver colunas com o mesmo nome
-                    df = pd.merge(df, df_reat_clean, on='_JOIN_KEY', how='left', suffixes=('', '_reat'))
-                    st.success("✅ Cruzamento com Reativações concluído! Verifique as novas colunas no seletor.")
-
-            df = df.drop(columns=['_JOIN_KEY'])
-        else:
-            df = df_ativacao
-
-        # --- SEÇÃO DE PERSONALIZAÇÃO ---
-        st.subheader("⚙️ Configurações da Exportação")
+        # Carregamento da Ativação e Protocolos (com headers normais para o merge inicial)
+        df_ativ = pd.read_excel(arquivo_ativacao) if arquivo_ativacao.name.endswith('xlsx') else pd.read_csv(arquivo_ativacao, sep=None, engine='python', encoding='latin-1')
+        df_prot = pd.read_excel(arquivo_protocolos) if arquivo_protocolos.name.endswith('xlsx') else pd.read_csv(arquivo_protocolos, sep=None, engine='python', encoding='latin-1')
         
-        # Define as colunas que você quer ver primeiro por padrão
-        colunas_padrao = [
+        df_ativ.columns = [str(c).strip() for c in df_ativ.columns]
+        df_prot.columns = [str(c).strip() for c in df_prot.columns]
+
+        # 1. Filtro e Merge Base (Ativação + Protocolos)
+        if 'Status Contrato' in df_ativ.columns:
+            df_ativ = df_ativ[df_ativ['Status Contrato'].astype(str).str.lower() != 'cancelado']
+
+        df_ativ['_JOIN_KEY'] = df_ativ['Nome Cliente'].astype(str).str.strip().str.upper()
+        df_prot['_JOIN_KEY'] = df_prot['Cliente'].astype(str).str.strip().str.upper()
+        
+        df_prot_clean = df_prot.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
+        df_base = pd.merge(df_ativ, df_prot_clean, on='_JOIN_KEY', how='left')
+        
+        if 'Vendedor 1' in df_base.columns:
+            df_base['Responsavel'] = df_base['Responsavel'].fillna(df_base['Vendedor 1'])
+
+        # --- PROCESSAMENTO MANUAL DA PLANILHA DE REATIVAÇÃO ---
+        if arquivo_reativacao:
+            # Lemos a reativação ignorando nomes de colunas para usar índices (A, B, C...)
+            df_reat_raw = pd.read_excel(arquivo_reativacao, header=None)
+            
+            # Criamos um novo DataFrame seguindo sua estrutura exata (A até S)
+            # AJ=35, AM=38, I=8, G=6, K=10, P=15, D=3, AO=40, AU=46, AV=47, AS=44, AQ=42, AL=37
+            reat_data = []
+            
+            for i, row in df_reat_raw.iloc[1:].iterrows(): # Pula o cabeçalho original
+                linha = {
+                    'Codigo Cliente': "REATIVAÇÃO",
+                    'Contrato': row[35],                # Coluna AJ
+                    'Data Contrato': row[38],           # Coluna AM
+                    'Prazo Ativacao Contrato': row[8],   # Coluna I
+                    'Ativacao Contrato': row[6],         # Coluna G
+                    'Ativacao Conexao': row[10],        # Coluna K
+                    'Nome Cliente': row[15],            # Coluna P
+                    'Responsavel': row[3],              # Coluna D
+                    'Vendedor 1': row[40],              # Coluna AO
+                    'Endereco Ativacao': row[46],       # Coluna AU
+                    'CEP': row[47],                     # Coluna AV
+                    'Cidade': row[44],                  # Coluna AS
+                    'Servico Ativado': row[42],         # Coluna AQ
+                    'Val Serv Ativado': "REATIVAÇÃO",    # Coluna N
+                    'Status Contrato': row[37],         # Coluna AL (O)
+                    'Assinatura Contrato': "",           # Coluna P (Em branco)
+                    'Vendedor 2': "",                   # Coluna Q (Em branco)
+                    'Origem': "REATIVAÇÃO",             # Coluna R
+                    'Valor Primeira Mensalidade': "REATIVAÇÃO" # Coluna S
+                }
+                reat_data.append(linha)
+            
+            df_reat_final = pd.DataFrame(reat_data)
+            
+            # Concatenamos a base original com as novas linhas de reativação
+            df_final_all = pd.concat([df_base, df_reat_final], ignore_index=True)
+        else:
+            df_final_all = df_base
+
+        # --- FORMATAÇÃO E DOWNLOAD ---
+        ordem_final = [
             'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
             'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
-            'Vendedor 1', 'Status Contrato'
+            'Vendedor 1', 'Endereco Ativacao', 'CEP', 'Cidade', 'Servico Ativado', 
+            'Val Serv Ativado', 'Status Contrato', 'Assinatura Contrato', 'Vendedor 2', 
+            'Origem', 'Valor Primeira Mensalidade'
         ]
         
-        colunas_disponiveis = list(df.columns)
-        selecao_inicial = [c for c in colunas_padrao if c in colunas_disponiveis]
+        df_output = df_final_all[[c for c in ordem_final if c in df_final_all.columns]]
+        st.dataframe(df_output, use_container_width=True)
 
-        col_selecionadas = st.multiselect(
-            "Selecione e ordene as colunas (incluindo as de reativação):", 
-            options=colunas_disponiveis, 
-            default=selecao_inicial
-        )
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_output.to_excel(writer, index=False, sheet_name='Planilha_Final')
+            ws = writer.sheets['Planilha_Final']
+            
+            amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+            centralizado = Alignment(horizontal='center', vertical='center')
+            sem_bordas = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
 
-        if col_selecionadas:
-            df_final = df[col_selecionadas]
-            st.dataframe(df_final, use_container_width=True)
-
-            # Estilização Excel
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Planilha_Final')
-                ws = writer.sheets['Planilha_Final']
+            for col_idx, col_cells in enumerate(ws.columns, 1):
+                header = ws.cell(row=1, column=col_idx)
+                # Aplicar cores conforme regras anteriores
+                if header.value == "Status Contrato": header.fill = amarelo
+                elif col_idx in [5, 15] or col_idx > 15: header.fill = verde
+                elif col_idx <= 9: header.fill = amarelo
                 
-                amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-                verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
-                fonte = Font(name='Calibri', size=11)
-                centralizado = Alignment(horizontal='center', vertical='center')
-                sem_bordas = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
+                for cell in col_cells:
+                    cell.alignment = centralizado
+                    cell.border = sem_bordas
+                ws.column_dimensions[header.column_letter].width = 25
 
-                for col_idx, col_cells in enumerate(ws.columns, 1):
-                    header = ws.cell(row=1, column=col_idx)
-                    nome_col = str(header.value).strip()
-                    
-                    # Cores dinâmicas
-                    if nome_col == "Status Contrato":
-                        header.fill = amarelo
-                    elif col_idx == 5 or col_idx == 15:
-                        header.fill = verde
-                    elif col_idx > len(col_selecionadas) - 4:
-                        header.fill = verde
-                    elif col_idx <= 9:
-                        header.fill = amarelo
-                    
-                    for cell in col_cells:
-                        cell.font = fonte
-                        cell.alignment = centralizado
-                        cell.border = sem_bordas
-                    ws.column_dimensions[header.column_letter].width = 25
-
-            st.download_button(
-                label="📥 Baixar Planilha Consolidada", 
-                data=output.getvalue(), 
-                file_name="CONSOLIDADO_REATIVACAO_NETMANIA.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        st.download_button("📥 Baixar Planilha Consolidada", output.getvalue(), "NETMANIA_REATIVACAO_MANUAL.xlsx")
 
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"Erro ao processar mapeamento manual: {e}")
 
-# --- TUTORIAL ---
+# --- TUTORIAL NO RODAPÉ ---
 st.divider()
-st.subheader("📖 Guia de Procedimentos")
-st.markdown("""
-* **Vínculo de Reativação:** O sistema agora faz um **PROCV total**. Ele usa o campo 'Cliente' da planilha de reativação para buscar o 'Nome Cliente' na base principal.
-* **Colunas:** Todas as colunas da sua planilha de Reativações (Protocolo, SLA, Motivo, etc.) estão disponíveis para serem selecionadas no menu acima.
-* **Segurança:** A regra do Vendedor 1 para o Responsável continua ativa.
+st.subheader("📖 Guia de Mapeamento Manual")
+st.info("""
+**Como a Etapa 3 funciona agora:**
+1. O sistema processa a Planilha 1 e 2 normalmente.
+2. Ele lê a Planilha 3 (Reativações) e extrai os dados das colunas específicas (AJ, AM, I, G, etc.) para criar novas linhas.
+3. As colunas P, Q ficam vazias e as colunas R, S e A são preenchidas com o texto 'REATIVAÇÃO'.
+4. Tudo é unificado em um único arquivo final centralizado.
 """)
