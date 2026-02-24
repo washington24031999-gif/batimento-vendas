@@ -22,13 +22,14 @@ with col1:
 with col2:
     arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
 
-# Balão informativo com as instruções detalhadas e atualizadas para "Responsavel"
+# Balão informativo com as instruções detalhadas
 st.info("""
 **💡 Instruções para Planilha de Protocolos:**
 * A planilha deve conter a coluna **'Responsavel'** logo após o nome do cliente.
-* **Filtros obrigatórios pré-upload:** Protocolo Abertura e Equipe Comercial (Interno/Externo).
-* **Regra de Responsabilidade:** O sistema considera o status de abertura para identificar o responsável pelo ganho da venda através da coluna 'Responsavel'.
+* **Filtros obrigatórios pré-upload:** Protocolo Encerramento e Equipe Comercial (Interno/Externo).
+* **Regra de Responsabilidade:** O sistema busca o responsável pelo ganho na coluna 'Responsavel'. 
 * **Vínculo:** O sistema cruza **'Nome Cliente'** (Ativação) com **'Cliente'** (Protocolos).
+* **Segurança:** Caso o responsável não seja encontrado nos protocolos, o sistema usará o **Vendedor 1** automaticamente.
 """)
 
 if arquivo_ativacao and arquivo_protocolos:
@@ -41,7 +42,7 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
-        # Limpeza de nomes de colunas (remover espaços em branco nas pontas)
+        # Limpeza de nomes de colunas
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
@@ -51,27 +52,31 @@ if arquivo_ativacao and arquivo_protocolos:
 
         # 2. Cruzamento de Dados (Merge)
         if 'Nome Cliente' in df_ativacao.columns and 'Cliente' in df_protocolos.columns:
-            # AJUSTE: Agora procurando por 'Responsavel' na planilha de protocolos
             if 'Responsavel' in df_protocolos.columns:
                 
-                # Normalização das chaves para garantir o vínculo (Maiúsculo e sem espaços)
+                # Normalização das chaves para vínculo
                 df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
                 df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
 
-                # Seleciona apenas as colunas necessárias e remove duplicatas de clientes nos protocolos
+                # Prepara protocolos (remove duplicatas para não inflar a ativação)
                 df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
                 
-                # Realiza o cruzamento (Merge/PROCV)
-                # O sufixo é tratado caso já exista uma coluna 'Responsavel' na ativação
+                # Merge: Traz o Responsável da planilha de protocolos
                 df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
                 
-                # Limpeza da chave temporária
+                # --- NOVA REGRA: Preenchimento de células vazias ---
+                if 'Responsavel' in df.columns and 'Vendedor 1' in df.columns:
+                    # Se 'Responsavel' estiver vazio ou for NaN, assume o valor do 'Vendedor 1'
+                    df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
+                    # Garante que strings vazias também sejam tratadas
+                    df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
+                
                 df = df.drop(columns=['_JOIN_KEY'])
             else:
                 st.error("⚠️ Coluna 'Responsavel' não encontrada na planilha de Protocolos.")
                 df = df_ativacao
         else:
-            st.error("⚠️ Verifique os nomes das colunas: 'Nome Cliente' (Ativação) ou 'Cliente' (Protocolos) não encontrados.")
+            st.error("⚠️ Verifique as colunas de vínculo: 'Nome Cliente' (Ativação) e 'Cliente' (Protocolos).")
             df = df_ativacao
 
         # --- SEÇÃO DE PERSONALIZAÇÃO ---
@@ -114,7 +119,6 @@ if arquivo_ativacao and arquivo_protocolos:
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # REGRAS DE CORES:
                     # Coluna E (5) e O (15) em VERDE
                     if col_idx == 5 or col_idx == 15: 
                         header.fill = verde
@@ -129,11 +133,11 @@ if arquivo_ativacao and arquivo_protocolos:
                         cell.font = fonte
                     ws.column_dimensions[header.column_letter].width = 22
 
-            st.success("✅ Cruzamento concluído! Coluna 'Responsavel' vinculada com sucesso.")
+            st.success("✅ Concluído! Responsáveis ausentes foram substituídos pelo Vendedor 1.")
             st.download_button(
                 label="📥 Baixar Planilha Consolidada",
                 data=output.getvalue(),
-                file_name="NETMANIA_OPTIMIZER_FINAL.xlsx",
+                file_name="NETMANIA_OPTIMIZER_CONSOLIDADO.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
