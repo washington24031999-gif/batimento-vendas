@@ -52,16 +52,14 @@ if arquivo:
         if not colunas_selecionadas:
             st.warning("⚠️ Selecione pelo menos uma coluna para exportar.")
         else:
-            # 3. Filtrar o DataFrame (Sem o .head(10))
+            # 3. Filtrar o DataFrame
             df_final = df[colunas_selecionadas]
             
-            # Visualização total no site (Streamlit adiciona barra de rolagem automaticamente)
             st.write(f"Visualizando todos os registros ({len(df_final)} linhas):")
             st.dataframe(df_final, use_container_width=True)
 
             # 4. Processamento com Estilos
             output = BytesIO()
-            # Certificando que o writer usa o df_final completo
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_final.to_excel(writer, index=False, sheet_name='Planilha')
                 ws = writer.sheets['Planilha']
@@ -74,7 +72,9 @@ if arquivo:
                     header = ws.cell(row=1, column=col_idx)
                     nome = str(header.value).strip()
                     
-                    if col_idx <= 9 or nome == "Status Contrato":
+                    # ALTERAÇÃO: Coluna E (5) e Coluna O (15) agora forçadas para Amarelo
+                    # Mantendo também a lógica original de colunas iniciais e finais
+                    if col_idx <= 9 or nome == "Status Contrato" or col_idx == 5 or col_idx == 15:
                         header.fill = amarelo
                     elif col_idx > len(colunas_selecionadas) - 4:
                         header.fill = verde
