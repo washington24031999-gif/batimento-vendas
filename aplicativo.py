@@ -7,7 +7,7 @@ if 'imghdr' not in sys.modules:
 
 import streamlit as st
 import pandas as pd
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from io import BytesIO
 
 st.set_page_config(page_title="Netmania Optimizer", layout="wide")
@@ -22,7 +22,7 @@ with col1:
 with col2:
     arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
 
-# Balão informativo com as instruções exatas solicitadas
+# Balão informativo
 st.info("""
 **💡 Instruções para Planilha de Protocolos:**
 * A planilha deve conter a coluna **'Responsavel'** logo após o nome do cliente.
@@ -42,7 +42,6 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
-        # Limpeza de nomes de colunas
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
@@ -53,28 +52,22 @@ if arquivo_ativacao and arquivo_protocolos:
         # 2. Cruzamento de Dados (Merge)
         if 'Nome Cliente' in df_ativacao.columns and 'Cliente' in df_protocolos.columns:
             if 'Responsavel' in df_protocolos.columns:
-                
-                # Normalização das chaves para vínculo
                 df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
                 df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
 
-                # Prepara protocolos
                 df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
-                
-                # Merge
                 df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
                 
-                # Segurança: Vendedor 1 no lugar de Responsavel vazio
                 if 'Responsavel' in df.columns and 'Vendedor 1' in df.columns:
                     df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
                     df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
                 
                 df = df.drop(columns=['_JOIN_KEY'])
             else:
-                st.error("⚠️ Coluna 'Responsavel' não encontrada na planilha de Protocolos.")
+                st.error("⚠️ Coluna 'Responsavel' não encontrada em Protocolos.")
                 df = df_ativacao
         else:
-            st.error("⚠️ Verifique as colunas de vínculo: 'Nome Cliente' e 'Cliente'.")
+            st.error("⚠️ Verifique as colunas de vínculo.")
             df = df_ativacao
 
         # --- SEÇÃO DE PERSONALIZAÇÃO ---
@@ -112,30 +105,45 @@ if arquivo_ativacao and arquivo_protocolos:
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
                 fonte = Font(name='Calibri', size=11, bold=False)
+                # Centralização total
+                centralizado = Alignment(horizontal='center', vertical='center')
+                # Configuração sem bordas
+                sem_bordas = Border(
+                    left=Side(style=None), 
+                    right=Side(style=None), 
+                    top=Side(style=None), 
+                    bottom=Side(style=None)
+                )
 
                 for col_idx, col_cells in enumerate(ws.columns, 1):
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # REGRAS DE CORES:
-                    # 1. Se for 'Status Contrato', SEMPRE AMARELO
+                    # 1. Regras de Cores (CABEÇALHO)
                     if nome_col == "Status Contrato":
                         header.fill = amarelo
-                    # 2. Se for Coluna E (5) ou Coluna O (15) SEM ser Status Contrato, fica VERDE
                     elif col_idx == 5 or col_idx == 15:
                         header.fill = verde
-                    # 3. Se forem as últimas 4 colunas, fica VERDE
                     elif col_idx > len(colunas_selecionadas) - 4:
                         header.fill = verde
-                    # 4. Se estiver entre as 9 primeiras, fica AMARELO
                     elif col_idx <= 9:
                         header.fill = amarelo
                     
+                    # 2. Aplicar Centralização e Sem Bordas no Título
+                    header.alignment = centralizado
+                    header.border = sem_bordas
+                    
+                    # 3. Aplicar Estilos em Todas as Células da Coluna
                     for cell in col_cells:
                         cell.font = fonte
-                    ws.column_dimensions[header.column_letter].width = 22
+                        cell.alignment = centralizado
+                        # Se não for o título, você pode decidir manter ou remover bordas
+                        # Aqui removeremos do corpo também para manter o padrão limpo
+                        cell.border = sem_bordas
 
-            st.success("✅ Estilização aplicada: 'Status Contrato' em destaque amarelo.")
+                    ws.column_dimensions[header.column_letter].width = 25
+
+            st.success("✅ Estilização concluída: Itens centralizados e títulos sem bordas.")
             st.download_button(
                 label="📥 Baixar Planilha Final",
                 data=output.getvalue(),
