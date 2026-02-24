@@ -12,7 +12,7 @@ from openpyxl.formatting.rule import FormulaRule
 from io import BytesIO
 
 st.set_page_config(page_title="Netmania Optimizer", layout="wide")
-st.title("📊 Estruturador de Planilhas Personalizado - Etapa 3")
+st.title("📊 Estruturador de Planilhas Personalizado")
 
 # --- FUNÇÃO DE CARREGAMENTO INTELIGENTE ---
 def carregar_dados_flexivel(arq, sem_header=False):
@@ -169,3 +169,4 @@ with t2:
 with t3:
     st.markdown("### 🔄 Planilha de Reativações")
     st.success("Retirar duplicados e filtrar na **Categoria 2**.")
+
