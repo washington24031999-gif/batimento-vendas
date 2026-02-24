@@ -22,12 +22,12 @@ with col1:
 with col2:
     arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
 
-# Balão informativo com as instruções detalhadas
+# Balão informativo com as instruções exatas solicitadas
 st.info("""
 **💡 Instruções para Planilha de Protocolos:**
 * A planilha deve conter a coluna **'Responsavel'** logo após o nome do cliente.
-* **Filtros obrigatórios pré-upload:** Protocolo Encerramento e Equipe Comercial (Interno/Externo).
-* **Regra de Responsabilidade:** O sistema busca o responsável pelo ganho na coluna 'Responsavel'. 
+* **Filtros obrigatórios pré-upload:** Protocolo Abertura e Equipe Comercial (Interno/Externo).
+* **Regra de Responsabilidade:** O sistema busca o responsável pelo ganho na coluna 'Responsavel'.
 * **Vínculo:** O sistema cruza **'Nome Cliente'** (Ativação) com **'Cliente'** (Protocolos).
 * **Segurança:** Caso o responsável não seja encontrado nos protocolos, o sistema usará o **Vendedor 1** automaticamente.
 """)
@@ -64,11 +64,9 @@ if arquivo_ativacao and arquivo_protocolos:
                 # Merge: Traz o Responsável da planilha de protocolos
                 df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
                 
-                # --- NOVA REGRA: Preenchimento de células vazias ---
+                # Regra de Segurança: Preenchimento com Vendedor 1 se estiver vazio
                 if 'Responsavel' in df.columns and 'Vendedor 1' in df.columns:
-                    # Se 'Responsavel' estiver vazio ou for NaN, assume o valor do 'Vendedor 1'
                     df['Responsavel'] = df['Responsavel'].fillna(df['Vendedor 1'])
-                    # Garante que strings vazias também sejam tratadas
                     df.loc[df['Responsavel'].astype(str).str.strip() == "", 'Responsavel'] = df['Vendedor 1']
                 
                 df = df.drop(columns=['_JOIN_KEY'])
@@ -119,13 +117,13 @@ if arquivo_ativacao and arquivo_protocolos:
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # Coluna E (5) e O (15) em VERDE
+                    # Cores: E (5) e O (15) em VERDE
                     if col_idx == 5 or col_idx == 15: 
                         header.fill = verde
                     # 4 últimas em VERDE
                     elif col_idx > len(colunas_selecionadas) - 4: 
                         header.fill = verde
-                    # Iniciais (até a 9ª) e Status em AMARELO
+                    # Iniciais (até 9) e Status em AMARELO
                     elif col_idx <= 9 or nome_col == "Status Contrato": 
                         header.fill = amarelo
                     
@@ -133,11 +131,11 @@ if arquivo_ativacao and arquivo_protocolos:
                         cell.font = fonte
                     ws.column_dimensions[header.column_letter].width = 22
 
-            st.success("✅ Concluído! Responsáveis ausentes foram substituídos pelo Vendedor 1.")
+            st.success("✅ Tudo pronto! Responsáveis preenchidos com sucesso.")
             st.download_button(
                 label="📥 Baixar Planilha Consolidada",
                 data=output.getvalue(),
-                file_name="NETMANIA_OPTIMIZER_CONSOLIDADO.xlsx",
+                file_name="PLANILHA_NETMANIA_CONSOLIDADA.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
