@@ -25,7 +25,7 @@ col_logo, col_titulo = st.columns([1, 4])
 with col_logo:
     st.image(LOGO_NETMANIA, width=180) 
 with col_titulo:
-    st.title("Estruturador de Planilhas Personalizado - Etapa 3")
+    st.title("Estruturador de Planilhas Personalizado")
     st.markdown("*Sistema de Gestão de Ativações e Reativações*")
 
 # --- FUNÇÃO DE CARREGAMENTO INTELIGENTE ---
@@ -192,3 +192,4 @@ with t2:
 with t3:
     st.markdown("### 🔄 Reativações")
     st.success("Remover duplicados e filtrar Categoria 2.")
+
