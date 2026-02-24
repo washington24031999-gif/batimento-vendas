@@ -33,7 +33,7 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
-        # Limpeza agressiva de nomes de colunas (remove espaços e caracteres invisíveis)
+        # Limpeza agressiva de nomes de colunas
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
@@ -42,7 +42,6 @@ if arquivo_ativacao and arquivo_protocolos:
             df_ativacao = df_ativacao[df_ativacao['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
         # 2. Cruzamento de Dados
-        # Verificamos se as colunas necessárias existem
         col_cliente_ativ = 'Nome Cliente'
         col_cliente_prot = 'Cliente'
         
@@ -145,8 +144,4 @@ with t2:
 
 with t3:
     st.markdown("### 3. Download")
-    st.write("Clique no botão azul acima para baixar. O arquivo virá centralizado, sem bordas e colorido.")
-
-st.divider()
-# Botão para abrir o site em nova aba
-st.markdown('<div style="text-align: center;"><a href="https://www.google.com" target="_blank" style="text-decoration: none; border: 1px solid #ff4b4b; color: #ff4b4b; padding: 12px 30px; border-radius: 8px; font-weight: bold; display: inline-block;">🌐 Acessar Portal Netmania</a></div>', unsafe_allow_html=True)
+    st.write("Clique no botão azul acima para baixar. O arquivo virá centralizado, sem bordas e colorido conforme as regras.")
