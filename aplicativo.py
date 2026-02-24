@@ -22,12 +22,13 @@ with col1:
 with col2:
     arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
 
-# Balão informativo com as instruções solicitadas
+# Balão informativo com as instruções detalhadas e atualizadas para "Responsavel"
 st.info("""
 **💡 Instruções para Planilha de Protocolos:**
-A planilha de protocolos deve conter obrigatoriamente uma coluna com o nome do **Responsável** pelo ganho de venda. 
-Certifique-se de que o arquivo já contenha os filtros aplicados: *Protocolo Encerrado* e *Equipe Comercial Interno/Externo*.
-O sistema buscará o Responsável comparando a coluna 'Nome Cliente' (Ativação) com 'Cliente' (Protocolos).
+* A planilha deve conter a coluna **'Responsavel'** logo após o nome do cliente.
+* **Filtros obrigatórios pré-upload:** Protocolo Abertura e Equipe Comercial (Interno/Externo).
+* **Regra de Responsabilidade:** O sistema considera o status de abertura para identificar o responsável pelo ganho da venda através da coluna 'Responsavel'.
+* **Vínculo:** O sistema cruza **'Nome Cliente'** (Ativação) com **'Cliente'** (Protocolos).
 """)
 
 if arquivo_ativacao and arquivo_protocolos:
@@ -40,7 +41,7 @@ if arquivo_ativacao and arquivo_protocolos:
         df_ativacao = carregar_dados(arquivo_ativacao)
         df_protocolos = carregar_dados(arquivo_protocolos)
 
-        # Limpeza de nomes de colunas
+        # Limpeza de nomes de colunas (remover espaços em branco nas pontas)
         df_ativacao.columns = [str(c).strip() for c in df_ativacao.columns]
         df_protocolos.columns = [str(c).strip() for c in df_protocolos.columns]
 
@@ -48,33 +49,34 @@ if arquivo_ativacao and arquivo_protocolos:
         if 'Status Contrato' in df_ativacao.columns:
             df_ativacao = df_ativacao[df_ativacao['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
-        # 2. Cruzamento de Dados (Merge) - Ajustado para 'Nome Cliente' vs 'Cliente'
+        # 2. Cruzamento de Dados (Merge)
         if 'Nome Cliente' in df_ativacao.columns and 'Cliente' in df_protocolos.columns:
+            # AJUSTE: Agora procurando por 'Responsavel' na planilha de protocolos
             if 'Responsavel' in df_protocolos.columns:
                 
-                # Normalização para garantir o cruzamento (Maiúsculo e sem espaços)
+                # Normalização das chaves para garantir o vínculo (Maiúsculo e sem espaços)
                 df_ativacao['_JOIN_KEY'] = df_ativacao['Nome Cliente'].astype(str).str.strip().str.upper()
                 df_protocolos['_JOIN_KEY'] = df_protocolos['Cliente'].astype(str).str.strip().str.upper()
 
-                # Seleciona apenas as colunas necessárias de protocolos para evitar conflitos
+                # Seleciona apenas as colunas necessárias e remove duplicatas de clientes nos protocolos
                 df_prot_clean = df_protocolos.drop_duplicates(subset=['_JOIN_KEY'])[['_JOIN_KEY', 'Responsavel']]
                 
-                # Faz o cruzamento
-                df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left')
+                # Realiza o cruzamento (Merge/PROCV)
+                # O sufixo é tratado caso já exista uma coluna 'Responsavel' na ativação
+                df = pd.merge(df_ativacao, df_prot_clean, on='_JOIN_KEY', how='left', suffixes=('_orig', ''))
                 
-                # Remove a chave temporária
+                # Limpeza da chave temporária
                 df = df.drop(columns=['_JOIN_KEY'])
             else:
                 st.error("⚠️ Coluna 'Responsavel' não encontrada na planilha de Protocolos.")
                 df = df_ativacao
         else:
-            st.error("⚠️ Verifique os nomes das colunas: 'Nome Cliente' (Ativação) e 'Cliente' (Protocolos) não encontrados.")
+            st.error("⚠️ Verifique os nomes das colunas: 'Nome Cliente' (Ativação) ou 'Cliente' (Protocolos) não encontrados.")
             df = df_ativacao
 
         # --- SEÇÃO DE PERSONALIZAÇÃO ---
         st.subheader("⚙️ Personalize sua exportação")
         
-        # Ordem com Responsavel na Coluna H (logo após Nome Cliente)
         ordem_padrao = [
             'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
             'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
@@ -98,7 +100,7 @@ if arquivo_ativacao and arquivo_protocolos:
             df_final = df[colunas_selecionadas]
             st.dataframe(df_final, use_container_width=True)
 
-            # 4. Processamento com Estilos
+            # 4. Processamento com Estilos Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_final.to_excel(writer, index=False, sheet_name='Planilha')
@@ -112,25 +114,28 @@ if arquivo_ativacao and arquivo_protocolos:
                     header = ws.cell(row=1, column=col_idx)
                     nome_col = str(header.value).strip()
                     
-                    # Regras de cores conforme solicitado anteriormente
-                    if col_idx == 5 or col_idx == 15: # E e O em verde
+                    # REGRAS DE CORES:
+                    # Coluna E (5) e O (15) em VERDE
+                    if col_idx == 5 or col_idx == 15: 
                         header.fill = verde
-                    elif col_idx > len(colunas_selecionadas) - 4: # 4 últimas em verde
+                    # 4 últimas em VERDE
+                    elif col_idx > len(colunas_selecionadas) - 4: 
                         header.fill = verde
-                    elif col_idx <= 9 or nome_col == "Status Contrato": # Iniciais em amarelo
+                    # Iniciais (até a 9ª) e Status em AMARELO
+                    elif col_idx <= 9 or nome_col == "Status Contrato": 
                         header.fill = amarelo
                     
                     for cell in col_cells:
                         cell.font = fonte
                     ws.column_dimensions[header.column_letter].width = 22
 
-            st.success(f"✅ Processamento concluído! Dados vinculados com sucesso.")
+            st.success("✅ Cruzamento concluído! Coluna 'Responsavel' vinculada com sucesso.")
             st.download_button(
                 label="📥 Baixar Planilha Consolidada",
                 data=output.getvalue(),
-                file_name="PLANILHA_FINAL_CONSOLIDADA.xlsx",
+                file_name="NETMANIA_OPTIMIZER_FINAL.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
     except Exception as e:
-        st.error(f"Erro ao processar: {e}")
+        st.error(f"Erro no processamento: {e}")
