@@ -8,6 +8,7 @@ if 'imghdr' not in sys.modules:
 import streamlit as st
 import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.formatting.rule import FormulaRule
 from io import BytesIO
 
 st.set_page_config(page_title="Netmania Optimizer", layout="wide")
@@ -49,11 +50,9 @@ if arquivo_ativacao and arquivo_protocolos:
             df_ativ.columns = [str(c).strip() for c in df_ativ.columns]
             df_prot.columns = [str(c).strip() for c in df_prot.columns]
 
-            # Filtro automático de cancelados na ativação
             if 'Status Contrato' in df_ativ.columns:
                 df_ativ = df_ativ[df_ativ['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
-            # Vínculo Ativação + Protocolos
             col_vinc_ativ = 'Nome Cliente' if 'Nome Cliente' in df_ativ.columns else df_ativ.columns[6]
             col_vinc_prot = 'Cliente' if 'Cliente' in df_prot.columns else df_prot.columns[15]
 
@@ -68,10 +67,9 @@ if arquivo_ativacao and arquivo_protocolos:
             if 'Responsavel' in df_base.columns and 'Vendedor 1' in df_base.columns:
                 df_base['Responsavel'] = df_base['Responsavel'].fillna(df_base['Vendedor 1'])
 
-            # --- PROCESSAMENTO MANUAL DA REATIVAÇÃO ---
+            # --- PROCESSAMENTO REATIVAÇÃO ---
             if arquivo_reativacao:
                 df_reat_raw = carregar_dados_flexivel(arquivo_reativacao, sem_header=True)
-                
                 if df_reat_raw is not None:
                     reat_rows = []
                     for _, row in df_reat_raw.iloc[1:].iterrows():
@@ -98,9 +96,7 @@ if arquivo_ativacao and arquivo_protocolos:
                                 'Valor Primeira Mensalidade': "REATIVAÇÃO"
                             })
                         except: continue
-                    
-                    df_reat_final = pd.DataFrame(reat_rows)
-                    df_final_consolidado = pd.concat([df_base, df_reat_final], ignore_index=True)
+                    df_final_consolidado = pd.concat([df_base, pd.DataFrame(reat_rows)], ignore_index=True)
                 else: df_final_consolidado = df_base
             else: df_final_consolidado = df_base
 
@@ -114,11 +110,8 @@ if arquivo_ativacao and arquivo_protocolos:
             ]
             
             df_export = df_final_consolidado[[c for c in colunas_finais if c in df_final_consolidado.columns]]
-            
-            # Formatar datas
             for col in ['Data Contrato', 'Prazo Ativacao Contrato', 'Ativacao Contrato', 'Ativacao Conexao']:
-                if col in df_export.columns:
-                    df_export[col] = df_export[col].apply(formatar_apenas_data)
+                if col in df_export.columns: df_export[col] = df_export[col].apply(formatar_apenas_data)
 
             st.dataframe(df_export, use_container_width=True)
 
@@ -127,24 +120,37 @@ if arquivo_ativacao and arquivo_protocolos:
                 df_export.to_excel(writer, index=False, sheet_name='Netmania')
                 ws = writer.sheets['Netmania']
                 
-                # Estilos visuais
+                # Estilos: Sem Negrito e Sem Grade
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+                vermelho_duplicado = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                fonte_padrao = Font(name='Calibri', size=11, bold=False) # Sem negrito
                 centro = Alignment(horizontal='center', vertical='center')
-                vazio = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
+                sem_borda = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
 
                 for col_idx, col_cells in enumerate(ws.columns, 1):
                     header = ws.cell(row=1, column=col_idx)
+                    # Cores dos títulos
                     if header.value == "Status Contrato": header.fill = amarelo
                     elif col_idx in [5, 15] or col_idx > 15: header.fill = verde
                     elif col_idx <= 9: header.fill = amarelo
                     
                     for cell in col_cells:
+                        cell.font = fonte_padrao
                         cell.alignment = centro
-                        cell.border = vazio
+                        cell.border = sem_borda
                     ws.column_dimensions[header.column_letter].width = 25
 
-            st.success("✅ **Relatório Gerado com Sucesso!** O arquivo está pronto para download com as datas tratadas e o mapeamento concluído.")
+                # --- VALIDAÇÃO DE DUPLICADOS (CONTRATO E NOME CLIENTE) ---
+                # Coluna B (Contrato) e Coluna G (Nome Cliente)
+                max_row = ws.max_row
+                for col_let in ['B', 'G']:
+                    ws.conditional_formatting.add(
+                        f'{col_let}2:{col_let}{max_row}',
+                        FormulaRule(formula=[f'COUNTIF(${col_let}$2:${col_let}${max_row},{col_let}2)>1'], fill=vermelho_duplicado)
+                    )
+
+            st.success("✅ **Relatório Gerado!** Títulos sem grade/negrito e validação de duplicados ativa.")
             st.download_button("📥 Baixar Planilha Final", output.getvalue(), "NETMANIA_CONSOLIDADO.xlsx")
 
     except Exception as e:
@@ -153,21 +159,13 @@ if arquivo_ativacao and arquivo_protocolos:
 # --- TUTORIAL NO RODAPÉ ---
 st.divider()
 st.subheader("📖 Orientações para Preparação das Planilhas")
-
 t1, t2, t3 = st.columns(3)
-
 with t1:
     st.markdown("### 📄 Planilha de Ativação")
-    st.info("Não precisa ser limpa de forma manual. O próprio sistema já realiza o tratamento e limpeza dos dados automaticamente.")
-
+    st.info("Tratamento automático pelo sistema.")
 with t2:
     st.markdown("### 📋 Planilha de Protocolos")
-    st.warning("Esta planilha serve para puxar os ganhos de venda e **precisa de tratamento prévio**:")
-    st.write("- Filtrar por: **Comercial Interno e Externo**.")
-    st.write("- Filtrar por Status de Protocolo: **Abertura**.")
-
+    st.warning("Filtrar por: **Comercial Interno/Externo** e Status: **Abertura**.")
 with t3:
     st.markdown("### 🔄 Planilha de Reativações")
-    st.success("Para garantir a precisão dos dados de reativação:")
-    st.write("- Retirar valores duplicados.")
-    st.write("- Filtrar na **Categoria 2** de reativações.")
+    st.success("Retirar duplicados e filtrar na **Categoria 2**.")
