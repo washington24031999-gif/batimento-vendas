@@ -51,11 +51,19 @@ def formatar_apenas_data(valor):
 
 # --- SEÇÃO DE UPLOAD ---
 col1, col2, col3 = st.columns(3)
-with col1: arquivo_ativacao = st.file_uploader("1. Planilha de Ativação (Obrigatória)", type=['xlsx', 'csv', 'xlsm'])
-with col2: arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos (Opcional)", type=['xlsx', 'csv', 'xlsm'])
-with col3: arquivo_reativacao = st.file_uploader("3. Relatório de Reativações (Opcional)", type=['xlsx', 'csv', 'xlsm'])
+with col1: 
+    arquivo_ativacao = st.file_uploader("1. Planilha de Ativação", type=['xlsx', 'csv', 'xlsm'])
+    st.caption("⚠️ O sistema remove cancelados automaticamente.")
 
-# --- PROCESSAMENTO PRINCIPAL ---
+with col2: 
+    arquivo_protocolos = st.file_uploader("2. Planilha de Protocolos", type=['xlsx', 'csv', 'xlsm'])
+    st.caption("🔍 Filtros: Comercial Interno/Externo | Status: Abertura.")
+
+with col3: 
+    arquivo_reativacao = st.file_uploader("3. Relatório de Reativações", type=['xlsx', 'csv', 'xlsm'])
+    st.caption("🔄 Filtros: Categoria 2 | Remover duplicados.")
+
+# --- PROCESSAMENTO ---
 if arquivo_ativacao:
     try:
         df_ativ = carregar_dados_flexivel(arquivo_ativacao)
@@ -67,7 +75,7 @@ if arquivo_ativacao:
             if 'Status Contrato' in df_ativ.columns:
                 df_ativ = df_ativ[df_ativ['Status Contrato'].astype(str).str.lower() != 'cancelado']
 
-            # --- TRATAMENTO DOS PROTOCOLOS (VINCULO DE RESPONSÁVEL) ---
+            # --- INTEGRAÇÃO DE PROTOCOLOS (OPCIONAL) ---
             if arquivo_protocolos:
                 df_prot = carregar_dados_flexivel(arquivo_protocolos)
                 if df_prot is not None:
@@ -86,17 +94,16 @@ if arquivo_ativacao:
                     
                     if 'Responsavel' in df_base.columns and 'Vendedor 1' in df_base.columns:
                         df_base['Responsavel'] = df_base['Responsavel'].fillna(df_base['Vendedor 1'])
-                    st.toast("✅ Protocolos vinculados com sucesso!", icon="📋")
+                    st.toast("Protocolos integrados!", icon="✅")
                 else:
                     df_base = df_ativ.copy()
             else:
                 df_base = df_ativ.copy()
-                # Plano B: Se não tem protocolo, o Responsável vira o Vendedor 1
                 if 'Responsavel' not in df_base.columns and 'Vendedor 1' in df_base.columns:
                     df_base['Responsavel'] = df_base['Vendedor 1']
-                st.warning("⚠️ **Aviso:** Planilha de Protocolos não enviada. A coluna **'Responsável'** foi preenchida automaticamente com os dados de **'Vendedor 1'**.")
+                st.warning("⚠️ **Aviso:** Sem planilha de Protocolos. O campo 'Responsável' foi preenchido com 'Vendedor 1'. Certifique-se de que os protocolos foram filtrados por *Comercial Interno/Externo* e *Status Abertura* caso decida subir o arquivo.")
 
-            # --- TRATAMENTO DAS REATIVAÇÕES ---
+            # --- INTEGRAÇÃO DE REATIVAÇÕES (OPCIONAL) ---
             if arquivo_reativacao:
                 df_reat_raw = carregar_dados_flexivel(arquivo_reativacao, sem_header=True)
                 if df_reat_raw is not None:
@@ -126,14 +133,14 @@ if arquivo_ativacao:
                             })
                         except: continue
                     df_final_consolidado = pd.concat([df_base, pd.DataFrame(reat_rows)], ignore_index=True)
-                    st.toast("✅ Reativações consolidadas!", icon="🔄")
+                    st.toast("Reativações incluídas!", icon="🔄")
                 else:
                     df_final_consolidado = df_base
             else:
                 df_final_consolidado = df_base
-                st.info("ℹ️ **Nota:** Relatório de Reativações ausente. O arquivo final conterá apenas as **novas ativações**.")
+                st.info("ℹ️ **Nota:** Relatório de Reativações ausente. Apenas novas ativações serão exibidas. Lembre-se: para reativações, filtre por *Categoria 2* e remova duplicados.")
 
-            # --- FORMATAÇÃO FINAL ---
+            # --- COLUNAS E FORMATAÇÃO ---
             colunas_finais = [
                 'Codigo Cliente', 'Contrato', 'Data Contrato', 'Prazo Ativacao Contrato', 
                 'Ativacao Contrato', 'Ativacao Conexao', 'Nome Cliente', 'Responsavel', 
@@ -150,16 +157,17 @@ if arquivo_ativacao:
 
             st.dataframe(df_export, use_container_width=True)
 
-            # --- GERAÇÃO DO EXCEL ESTILIZADO ---
+            # --- EXCEL ESTILIZADO ---
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_export.to_excel(writer, index=False, sheet_name='Netmania')
                 ws = writer.sheets['Netmania']
                 
+                # Estilos
                 amarelo = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                 verde = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
                 vermelho_duplicado = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                fonte_corpo = Font(name='Calibri', size=11, bold=False)
+                fonte_corpo = Font(name='Calibri', size=11)
                 centro = Alignment(horizontal='center', vertical='center')
                 sem_grade = Border(left=Side(style=None), right=Side(style=None), top=Side(style=None), bottom=Side(style=None))
 
@@ -175,6 +183,7 @@ if arquivo_ativacao:
                         cell.border = sem_grade
                     ws.column_dimensions[header.column_letter].width = 25
 
+                # Duplicados
                 max_row = ws.max_row
                 for col_let in ['B', 'G']:
                     ws.conditional_formatting.add(
@@ -182,25 +191,23 @@ if arquivo_ativacao:
                         FormulaRule(formula=[f'COUNTIF(${col_let}$2:${col_let}${max_row},{col_let}2)>1'], fill=vermelho_duplicado)
                     )
 
-            st.success("✅ **Relatório Gerado!**")
-            st.download_button("📥 Baixar Planilha Consolidada", output.getvalue(), "NETMANIA_CONSOLIDADO.xlsx")
+            st.success("✅ **Sucesso!** O arquivo está pronto para download.")
+            st.download_button("📥 Baixar Planilha Final", output.getvalue(), "NETMANIA_CONSOLIDADO.xlsx")
 
     except Exception as e:
         st.error(f"Erro geral: {e}")
-else:
-    st.info("Aguardando o upload da **Planilha de Ativação** para iniciar...")
 
-# --- TUTORIAL NO RODAPÉ ---
+# --- RODAPÉ (TUTORIAL MANTIDO) ---
 st.divider()
 st.subheader("📖 Orientações Netmania")
 
 t1, t2, t3 = st.columns(3)
 with t1:
     st.markdown("### 📄 Ativação")
-    st.info("Obrigatória. Define a base do relatório.")
+    st.info("Tratamento automático (o sistema já exclui os contratos com status 'Cancelado').")
 with t2:
     st.markdown("### 📋 Protocolos")
-    st.warning("Opcional. Se não enviada, o Responsável será o Vendedor 1.")
+    st.warning("Filtros necessários: **Comercial Interno/Externo** e Status: **Abertura**.")
 with t3:
     st.markdown("### 🔄 Reativações")
-    st.success("Opcional. Se não enviada, o relatório ignora reativações.")
+    st.success("Filtros necessários: Remover duplicados e filtrar por **Categoria 2**.")
